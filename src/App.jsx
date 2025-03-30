@@ -59,7 +59,14 @@ function App() {
       setError(null);
 
       if (!API_KEY) {
-        throw new Error("API key is not configured");
+        throw new Error(
+          "API key is missing. Please add your OpenWeather API key to the environment variables."
+        );
+      }
+
+      // Input validation
+      if (!city || typeof city !== "string") {
+        throw new Error("Invalid city name provided");
       }
 
       // Always use the provided city for refreshing, don't use lastCity
@@ -70,42 +77,57 @@ function App() {
       }
 
       // Clean up city name - remove extra spaces and special characters
-      const cleanedCity = targetCity.trim().replace(/\s+/g, " ").split(",")[0];
+      const cleanedCity = targetCity
+        .trim()
+        .replace(/[^\w\s,-]/g, "")
+        .replace(/\s+/g, " ")
+        .split(",")[0];
 
       console.log("Fetching weather for city:", cleanedCity);
-      console.log("Using API key:", API_KEY.substring(0, 4) + "...");
+
+      // Add request timeout
+      const axiosConfig = {
+        timeout: 10000, // 10 seconds timeout
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+      };
 
       // First try to get coordinates using geocoding API
       const geoResponse = await axios.get(
         `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(
           cleanedCity
-        )}&limit=1&appid=${API_KEY}`
+        )}&limit=1&appid=${API_KEY}`,
+        axiosConfig
       );
 
       if (!geoResponse.data || geoResponse.data.length === 0) {
         throw new Error(
-          `City "${cleanedCity}" not found. Please try a different City.`
+          `City "${cleanedCity}" not found. Please check the spelling or try a different city name.`
         );
       }
 
       const { lat, lon, name: confirmedCityName } = geoResponse.data[0];
 
-      // Fetch current weather using coordinates
-      const weatherResponse = await axios.get(
-        `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`
-      );
+      // Fetch current weather and forecast in parallel
+      const [weatherResponse, forecastResponse] = await Promise.all([
+        axios.get(
+          `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`,
+          axiosConfig
+        ),
+        axios.get(
+          `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`,
+          axiosConfig
+        ),
+      ]);
 
       if (!weatherResponse.data) {
-        throw new Error("No weather data received");
+        throw new Error("Failed to fetch current weather data");
       }
 
-      // Fetch forecast data using coordinates
-      const forecastResponse = await axios.get(
-        `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`
-      );
-
       if (!forecastResponse.data) {
-        throw new Error("No forecast data received");
+        throw new Error("Failed to fetch forecast data");
       }
 
       // Get current time for display
